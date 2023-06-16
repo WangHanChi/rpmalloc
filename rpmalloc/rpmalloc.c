@@ -200,6 +200,18 @@
 #  endif
 #endif
 
+//! This option can enable pre-populating memory pages to avoid page faults 
+//! and improve performance. However, it should be used with caution to 
+//! prevent potential performance degradation.
+#if defined(__linux__)
+#  include <linux/version.h>
+#    if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 23)
+#      define ENABLE_SMALL_MEDIUM_POPULATE 1
+#      define ENABLE_HUGE_POPULATE 0
+#      define ENABLE_ALL_POPULATE 0
+#    endif
+#endif
+
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
@@ -947,6 +959,19 @@ _rpmalloc_mmap_os(size_t size, size_t* offset) {
 	}
 #else
 	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_UNINITIALIZED;
+#if ENABLE_SMALL_MEDIUM_POPULATE
+	if((size + padding) < MEDIUM_SIZE_LIMIT){
+		flags |=  MAP_POPULATE | MAP_NORESERVE;
+	}
+#endif
+#if ENABLE_HUGE_POPULATE
+	if((size + padding > (LARGE_SIZE_LIMIT + 4096 * 35))){
+		flags |=  MAP_POPULATE | MAP_NORESERVE;
+	}
+#endif
+#if ENABLE_ALL_POPULATE
+	flags |=  MAP_POPULATE | MAP_NORESERVE;
+#endif
 #  if defined(__APPLE__) && !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 	int fd = (int)VM_MAKE_TAG(240U);
 	if (_memory_huge_pages)

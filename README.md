@@ -93,6 +93,8 @@ To enable the runtime configurable memory page and span sizes, define __RPMALLOC
 
 To enable support for first class heaps, define __RPMALLOC_FIRST_CLASS_HEAPS__ to 1. By default, the first class heap API is disabled.
 
+To enable three levels of page pre-population based on specific needs, define __ENABLE_SMALL_MEDIUM_POPULATE__, __ENABLE_HUGE_POPULATE__, and __ENABLE_ALL_POPULATE__ to 1 or not is according to the specific scenario. By default, __ENABLE_SMALL_MEDIUM_POPULATE__ is enabled, while the other two options are disabled.
+
 # Huge pages
 The allocator has support for huge/large pages on Windows, Linux and MacOS. To enable it, pass a non-zero value in the config value `enable_huge_pages` when initializing the allocator with `rpmalloc_initialize_config`. If the system does not support huge pages it will be automatically disabled. You can query the status by looking at `enable_huge_pages` in the config returned from a call to `rpmalloc_config` after initialization is done.
 
