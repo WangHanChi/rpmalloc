@@ -200,6 +200,22 @@
 #  endif
 #endif
 
+//! This option can enable pre-populating memory pages to avoid page faults 
+//! and improve performance. However, it should be used with caution to 
+//! prevent potential performance degradation.
+#if defined(__linux__)
+#  include <linux/version.h>
+#    if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 23)
+#      define ENABLE_SMALL_MEDIUM_POPULATE 1
+#      define ENABLE_HUGE_POPULATE 0
+#      define ENABLE_ALL_POPULATE 0
+#    endif
+#else
+#      define ENABLE_SMALL_MEDIUM_POPULATE 0
+#      define ENABLE_HUGE_POPULATE 0
+#      define ENABLE_ALL_POPULATE 0
+#endif
+
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
@@ -947,6 +963,19 @@ _rpmalloc_mmap_os(size_t size, size_t* offset) {
 	}
 #else
 	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_UNINITIALIZED;
+#if ENABLE_SMALL_MEDIUM_POPULATE
+	if((size + padding) < MEDIUM_SIZE_LIMIT){
+		flags |=  MAP_POPULATE | MAP_NORESERVE;
+	}
+#endif
+#if ENABLE_HUGE_POPULATE
+	if((size + padding > (LARGE_SIZE_LIMIT + 4096 * 35))){
+		flags |=  MAP_POPULATE | MAP_NORESERVE;
+	}
+#endif
+#if ENABLE_ALL_POPULATE
+	flags |=  MAP_POPULATE | MAP_NORESERVE;
+#endif
 #  if defined(__APPLE__) && !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 	int fd = (int)VM_MAKE_TAG(240U);
 	if (_memory_huge_pages)
@@ -1099,7 +1128,7 @@ _rpmalloc_span_double_link_list_pop_head(span_t** head, span_t* span) {
 static void
 _rpmalloc_span_double_link_list_remove(span_t** head, span_t* span) {
 	rpmalloc_assert(*head, "Linked list corrupted");
-	if (*head == span) {
+	if (EXPECTED(*head == span)) {
 		*head = span->next;
 	} else {
 		span_t* next_span = span->next;
@@ -1258,7 +1287,7 @@ _rpmalloc_span_unmap(span_t* span) {
 	rpmalloc_assert(master->flags & SPAN_FLAG_MASTER, "Span flag corrupted");
 
 	size_t span_count = span->span_count;
-	if (!is_master) {
+	if (EXPECTED(!is_master)) {
 		//Directly unmap subspans (unless huge pages, in which case we defer and unmap entire page range with master)
 		rpmalloc_assert(span->align_offset == 0, "Span align offset corrupted");
 		if (_memory_span_size >= _memory_page_size)
@@ -1309,7 +1338,7 @@ static uint32_t
 free_list_partial_init(void** list, void** first_block, void* page_start, void* block_start, uint32_t block_count, uint32_t block_size) {
 	rpmalloc_assert(block_count, "Internal failure");
 	*first_block = block_start;
-	if (block_count > 1) {
+	if (EXPECTED(block_count > 1)) {
 		void* free_block = pointer_offset(block_start, block_size);
 		void* block_end = pointer_offset(block_start, (size_t)block_size * block_count);
 		//If block size is less than half a memory page, bound init to next memory page boundary
@@ -1487,7 +1516,7 @@ _rpmalloc_global_cache_insert_spans(span_t** span, size_t span_count, size_t cou
 	atomic_store32_release(&cache->lock, 0);
 
 	span_t* keep = 0;
-	for (size_t ispan = insert_count; ispan < count; ++ispan) {
+	for (size_t ispan = insert_count; ispan < count; ) {
 		span_t* current_span = span[ispan];
 		// Keep master spans that has remaining subspans to avoid dangling them
 		if ((current_span->flags & SPAN_FLAG_MASTER) &&
@@ -1497,6 +1526,7 @@ _rpmalloc_global_cache_insert_spans(span_t** span, size_t span_count, size_t cou
 		} else {
 			_rpmalloc_span_unmap(current_span);
 		}
+		__builtin_prefetch(span[++ispan], 0, 0);
 	}
 
 	if (keep) {
